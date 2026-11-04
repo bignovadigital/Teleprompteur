@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>Téléprompteur</title>
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Prompteur">
+  <link rel="apple-touch-icon" href="icon-180.png">
+  <link rel="icon" href="icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="studio">
+    <!-- Cadre de la vidéo : ce qui est visible ici = ce qui est enregistré (sans le texte) -->
+    <div id="frame">
+      <video id="preview" autoplay playsinline muted></video>
+
+      <!-- Le texte du prompteur : affiché seulement à l'écran, jamais enregistré -->
+      <div id="prompter" aria-live="off">
+        <div id="prompterText"></div>
+        <div id="readLine"></div>
+      </div>
+
+      <div id="countdown" hidden></div>
+      <div id="recBadge" hidden><span class="dot"></span><span id="recTime">00:00</span></div>
+      <div id="camMessage" hidden></div>
+      <div id="rotateHint">↻ Tournez le téléphone à l'horizontale</div>
+    </div>
+
+    <!-- Barre du haut -->
+    <div id="topBar">
+      <div class="seg" role="group" aria-label="Format">
+        <button data-ratio="portrait" class="active">9:16</button>
+        <button data-ratio="landscape">16:9</button>
+      </div>
+      <button id="flipBtn" class="icon" title="Changer de caméra" aria-label="Changer de caméra">⟲</button>
+    </div>
+
+    <!-- Barre du bas -->
+    <div id="bottomBar">
+      <button id="scriptBtn" class="pill">Texte &amp; réglages</button>
+      <button id="recBtn" aria-label="Enregistrer"><span></span></button>
+      <div class="speed">
+        <button id="slowerBtn" class="icon small" aria-label="Plus lent">−</button>
+        <span id="speedLabel">5</span>
+        <button id="fasterBtn" class="icon small" aria-label="Plus rapide">+</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Panneau texte & réglages -->
+  <section id="sheet" class="sheet" hidden>
+    <div class="sheetHead">
+      <h2>Texte &amp; réglages</h2>
+      <button id="closeSheet" class="pill primary">OK</button>
+    </div>
+    <label class="field">
+      <span>Votre script</span>
+      <textarea id="scriptInput" rows="9" placeholder="Collez ou écrivez votre texte ici…"></textarea>
+    </label>
+
+    <div class="grid">
+      <label class="field">
+        <span>Vitesse de défilement <b id="speedVal">5</b></span>
+        <input id="speedInput" type="range" min="1" max="20" step="1" value="5">
+      </label>
+      <label class="field">
+        <span>Taille du texte <b id="sizeVal">32</b> px</span>
+        <input id="sizeInput" type="range" min="18" max="64" step="1" value="32">
+      </label>
+      <label class="field">
+        <span>Hauteur de la zone de texte <b id="heightVal">40</b> %</span>
+        <input id="heightInput" type="range" min="20" max="80" step="5" value="40">
+      </label>
+      <label class="field">
+        <span>Opacité du fond du texte <b id="opacityVal">55</b> %</span>
+        <input id="opacityInput" type="range" min="0" max="90" step="5" value="55">
+      </label>
+      <label class="check">
+        <input id="countdownInput" type="checkbox" checked>
+        <span>Compte à rebours de 3 secondes</span>
+      </label>
+      <label class="check">
+        <input id="mirrorInput" type="checkbox" checked>
+        <span>Aperçu en miroir (caméra avant) — la vidéo finale reste à l'endroit</span>
+      </label>
+    </div>
+
+    <p class="hint">
+      Le texte s'affiche uniquement à l'écran. La vidéo enregistrée ne contient que l'image de la caméra et le son.<br>
+      Astuce : pendant l'enregistrement, touchez le texte pour mettre le défilement en pause, glissez pour avancer ou reculer.
+    </p>
+    <p class="hint" id="formatInfo"></p>
+  </section>
+
+  <!-- Résultat -->
+  <section id="result" class="sheet" hidden>
+    <div class="sheetHead">
+      <h2>Votre vidéo</h2>
+      <span id="resultInfo" class="muted"></span>
+    </div>
+    <video id="resultVideo" playsinline controls></video>
+    <div class="actions">
+      <button id="saveBtn" class="pill primary">Enregistrer / Partager</button>
+      <button id="discardBtn" class="pill">Supprimer et recommencer</button>
+    </div>
+    <p class="hint">Sur iPhone : « Enregistrer / Partager » puis « Enregistrer la vidéo » pour l'ajouter à Photos.</p>
+  </section>
+
+  <canvas id="recCanvas" hidden></canvas>
+  <script src="app.js"></script>
+</body>
+</html>
