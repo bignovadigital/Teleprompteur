@@ -41,7 +41,12 @@
     resultInfo: $('resultInfo'),
     saveBtn: $('saveBtn'),
     discardBtn: $('discardBtn'),
-    canvas: $('recCanvas'),
+    view: $('view'),
+    filterBtn: $('filterBtn'),
+    filterInput: $('filterInput'),
+    smoothInput: $('smoothInput'), smoothVal: $('smoothVal'),
+    glowInput: $('glowInput'), glowVal: $('glowVal'),
+    filterInfo: $('filterInfo'),
   };
 
   // ---------- Réglages persistants ----------
@@ -56,6 +61,9 @@
     mirror: true,
     ratio: 'portrait',
     facing: 'user',
+    filter: false,
+    smooth: 50,
+    glow: 40,
   };
   let settings = { ...defaults };
   try {
@@ -86,6 +94,145 @@
   }
   const MIME = pickMime();
 
+  // ---------- Rendu (caméra recadrée + filtre bonne mine) ----------
+  // Un seul <canvas> sert d'aperçu ET de source d'enregistrement : ce que l'on voit
+  // est exactement ce qui est enregistré. Le texte, lui, est un élément HTML à part.
+  const VERT = `
+    attribute vec2 aPos;
+    varying vec2 vUv;
+    void main() {
+      vUv = aPos * 0.5 + 0.5;
+      gl_Position = vec4(aPos, 0.0, 1.0);
+    }`;
+
+  // Lissage : flou « bilatéral » (moyenne des pixels voisins de couleur proche, ce qui
+  // garde les contours nets : yeux, sourcils, cheveux), appliqué seulement sur les
+  // tons de peau (détection dans l'espace YCbCr).
+  // Éclat : léger éclaircissement des tons moyens, teinte un peu plus chaude,
+  // saturation légèrement augmentée.
+  const FRAG = `
+    precision mediump float;
+    varying vec2 vUv;
+    uniform sampler2D uTex;
+    uniform vec4 uCrop;      // x, y, largeur, hauteur (coordonnées de texture 0..1)
+    uniform vec2 uStep;      // taille d'un pas d'échantillonnage (en coordonnées de texture)
+    uniform float uSmooth;   // 0..1
+    uniform float uGlow;     // 0..1
+
+    float skinMask(vec3 c) {
+      float cb = -0.1687 * c.r - 0.3313 * c.g + 0.5 * c.b + 0.5;
+      float cr =  0.5 * c.r - 0.4187 * c.g - 0.0813 * c.b + 0.5;
+      float m = smoothstep(0.26, 0.31, cb) * (1.0 - smoothstep(0.49, 0.54, cb))
+              * smoothstep(0.50, 0.54, cr) * (1.0 - smoothstep(0.68, 0.72, cr));
+      return m;
+    }
+
+    void main() {
+      vec2 uv = uCrop.xy + vec2(vUv.x, 1.0 - vUv.y) * uCrop.zw;
+      vec3 c = texture2D(uTex, uv).rgb;
+      vec3 col = c;
+
+      if (uSmooth > 0.001) {
+        vec3 sum = c;
+        float wsum = 1.0;
+        // Plus le lissage est fort, plus il tolère les écarts de couleur (petites taches)
+        // et plus il va chercher loin.
+        float k = 120.0 - 90.0 * uSmooth;
+        vec2 stepR = uStep * (0.6 + 0.9 * uSmooth);
+        for (int ring = 1; ring <= 3; ring++) {
+          float r = float(ring);
+          for (int i = 0; i < 12; i++) {
+            float a = (float(i) + 0.5 * r) * 0.5235988; // 2π / 12, anneaux décalés
+            vec3 s = texture2D(uTex, uv + vec2(cos(a), sin(a)) * stepR * r).rgb;
+            vec3 d = s - c;
+            float w = exp(-dot(d, d) * k);
+            sum += s * w;
+            wsum += w;
+          }
+        }
+        vec3 smoothed = sum / wsum;
+        col = mix(c, smoothed, uSmooth * skinMask(c));
+      }
+
+      if (uGlow > 0.001) {
+        col = pow(max(col, 0.0), vec3(1.0 - 0.18 * uGlow));          // éclaircit les tons moyens
+        col += vec3(0.035, 0.012, -0.02) * uGlow;                     // teint plus chaleureux
+        float l = dot(col, vec3(0.299, 0.587, 0.114));
+        col = mix(vec3(l), col, 1.0 + 0.12 * uGlow);                  // un peu plus de couleur
+      }
+
+      gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+    }`;
+
+  const renderer = (() => {
+    const canvas = els.view;
+    let gl = null, prog = null, tex = null, loc = {}, ctx2d = null;
+    try {
+      gl = canvas.getContext('webgl', { alpha: false, antialias: false, preserveDrawingBuffer: true })
+        || canvas.getContext('experimental-webgl', { alpha: false, preserveDrawingBuffer: true });
+    } catch (_) { gl = null; }
+
+    if (gl) {
+      const compile = (type, src) => {
+        const sh = gl.createShader(type);
+        gl.shaderSource(sh, src);
+        gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(sh));
+        return sh;
+      };
+      try {
+        prog = gl.createProgram();
+        gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+        gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+        gl.linkProgram(prog);
+        if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+        gl.useProgram(prog);
+
+        const buf = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+        gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+        const aPos = gl.getAttribLocation(prog, 'aPos');
+        gl.enableVertexAttribArray(aPos);
+        gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+        tex = gl.createTexture();
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+        for (const n of ['uTex', 'uCrop', 'uStep', 'uSmooth', 'uGlow']) loc[n] = gl.getUniformLocation(prog, n);
+        gl.uniform1i(loc.uTex, 0);
+      } catch (e) {
+        console.warn('WebGL indisponible, rendu sans filtre', e);
+        gl = null;
+      }
+    }
+    if (!gl) ctx2d = canvas.getContext('2d', { alpha: false });
+
+    function draw(video, crop) {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (gl) {
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+        gl.uniform4f(loc.uCrop, crop.sx / vw, crop.sy / vh, crop.sw / vw, crop.sh / vh);
+        // Rayon du lissage proportionnel à la taille de l'image (≈ 2,2 px par anneau pour 1080 px de large).
+        const stepPx = Math.max(1, Math.min(crop.sw, crop.sh) / 1080 * 2.2);
+        gl.uniform2f(loc.uStep, stepPx / vw, stepPx / vh);
+        const on = settings.filter;
+        gl.uniform1f(loc.uSmooth, on ? settings.smooth / 100 : 0);
+        gl.uniform1f(loc.uGlow, on ? settings.glow / 100 : 0);
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+      } else {
+        ctx2d.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    return { canvas, gl, draw };
+  })();
+
   // ---------- Application des réglages à l'interface ----------
   function applySettings() {
     const r = document.documentElement.style;
@@ -104,7 +251,11 @@
     document.querySelectorAll('[data-ratio]').forEach((b) =>
       b.classList.toggle('active', b.dataset.ratio === settings.ratio));
 
-    els.preview.classList.toggle('mirror', settings.mirror && settings.facing === 'user');
+    els.view.classList.toggle('mirror', settings.mirror && settings.facing === 'user');
+    els.smoothVal.textContent = settings.smooth;
+    els.glowVal.textContent = settings.glow;
+    els.filterBtn.setAttribute('aria-pressed', String(settings.filter));
+    els.filterBtn.hidden = !renderer.gl;
   }
 
   function fillForm() {
@@ -115,6 +266,12 @@
     els.opacityInput.value = settings.opacity;
     els.countdownInput.checked = settings.countdown;
     els.mirrorInput.checked = settings.mirror;
+    els.filterInput.checked = settings.filter;
+    els.smoothInput.value = settings.smooth;
+    els.glowInput.value = settings.glow;
+    els.filterInfo.textContent = renderer.gl
+      ? 'Le filtre est appliqué à l\'aperçu et à la vidéo enregistrée (jamais au texte, qui n\'est pas enregistré).'
+      : 'Le filtre n\'est pas disponible sur cet appareil (WebGL indisponible).';
     const fmt = MIME === null
       ? "Ce navigateur ne permet pas l'enregistrement vidéo."
       : `Format d'export : ${MIME ? MIME.split(';')[0].replace('video/', '').toUpperCase() : 'par défaut du navigateur'}.`;
@@ -248,7 +405,6 @@
   let recording = false;
   let recorder = null;
   let chunks = [];
-  let drawRaf = 0;
   let timerInt = 0;
   let startedAt = 0;
   let resultBlob = null;
@@ -273,6 +429,27 @@
     return { w: even(c.sw * scale), h: even(c.sh * scale) };
   }
 
+  /**
+   * Boucle d'affichage permanente : dessine la caméra (recadrée + filtre) dans le canvas visible.
+   * Hors enregistrement, la taille du canvas suit le format choisi et la résolution de la caméra.
+   * Pendant l'enregistrement, elle est figée (le recadrage, lui, suit une éventuelle rotation).
+   */
+  function renderLoop() {
+    const v = els.preview;
+    if (v.videoWidth && v.videoHeight) {
+      const portrait = settings.ratio === 'portrait';
+      if (!recording) {
+        const size = canvasSize(v.videoWidth, v.videoHeight, portrait);
+        if (renderer.canvas.width !== size.w || renderer.canvas.height !== size.h) {
+          renderer.canvas.width = size.w;
+          renderer.canvas.height = size.h;
+        }
+      }
+      renderer.draw(v, cropRect(v.videoWidth, v.videoHeight, portrait ? 9 / 16 : 16 / 9));
+    }
+    requestAnimationFrame(renderLoop);
+  }
+
   async function requestWakeLock() {
     try { if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen'); } catch (_) {}
   }
@@ -290,21 +467,9 @@
     const v = els.preview;
     if (!v.videoWidth || !v.videoHeight) return;
 
-    const portrait = settings.ratio === 'portrait';
-    const ratio = portrait ? 9 / 16 : 16 / 9;
-    const size = canvasSize(v.videoWidth, v.videoHeight, portrait);
-    const canvas = els.canvas;
-    canvas.width = size.w;
-    canvas.height = size.h;
-    const ctx = canvas.getContext('2d', { alpha: false });
-
-    // Dessin : uniquement l'image caméra (jamais le texte).
-    const draw = () => {
-      const c = cropRect(v.videoWidth, v.videoHeight, ratio);
-      ctx.drawImage(v, c.sx, c.sy, c.sw, c.sh, 0, 0, canvas.width, canvas.height);
-      drawRaf = requestAnimationFrame(draw);
-    };
-    draw();
+    // Le canvas ne contient que l'image caméra (filtrée si activé), jamais le texte.
+    const canvas = renderer.canvas;
+    const size = { w: canvas.width, h: canvas.height };
 
     const canvasStream = canvas.captureStream(30);
     const outStream = new MediaStream([
@@ -324,7 +489,6 @@
     chunks = [];
     recorder.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
     recorder.onstop = () => {
-      cancelAnimationFrame(drawRaf);
       canvasStream.getTracks().forEach((t) => t.stop());
       const type = recorder.mimeType || MIME || 'video/mp4';
       resultBlob = new Blob(chunks, { type });
@@ -483,6 +647,13 @@
   bind(els.opacityInput, 'opacity');
   bind(els.countdownInput, 'countdown');
   bind(els.mirrorInput, 'mirror');
+  bind(els.filterInput, 'filter');
+  bind(els.smoothInput, 'smooth');
+  bind(els.glowInput, 'glow');
+  els.filterBtn.addEventListener('click', () => {
+    settings.filter = !settings.filter;
+    save(); applySettings();
+  });
 
   // Si l'app passe en arrière-plan pendant l'enregistrement, on arrête proprement.
   document.addEventListener('visibilitychange', () => {
@@ -497,7 +668,8 @@
   applySettings();
   fillForm();
   startCamera();
+  requestAnimationFrame(renderLoop);
 
   // Exposé pour les tests automatisés uniquement.
-  window.__tp = { cropRect, canvasSize, get mime() { return MIME; } };
+  window.__tp = { cropRect, canvasSize, get mime() { return MIME; }, get gl() { return !!renderer.gl; } };
 })();

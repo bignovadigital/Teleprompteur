@@ -19,6 +19,8 @@
     <!-- Cadre de la vidéo : ce qui est visible ici = ce qui est enregistré (sans le texte) -->
     <div id="frame">
       <video id="preview" autoplay playsinline muted></video>
+      <!-- Image affichée ET enregistrée : caméra recadrée + filtre éventuel (sans le texte) -->
+      <canvas id="view"></canvas>
 
       <!-- Le texte du prompteur : affiché seulement à l'écran, jamais enregistré -->
       <div id="prompter" aria-live="off">
@@ -38,7 +40,10 @@
         <button data-ratio="portrait" class="active">9:16</button>
         <button data-ratio="landscape">16:9</button>
       </div>
-      <button id="flipBtn" class="icon" title="Changer de caméra" aria-label="Changer de caméra">⟲</button>
+      <div class="row">
+        <button id="filterBtn" class="icon" title="Filtre bonne mine" aria-label="Filtre bonne mine" aria-pressed="false">✨</button>
+        <button id="flipBtn" class="icon" title="Changer de caméra" aria-label="Changer de caméra">⟲</button>
+      </div>
     </div>
 
     <!-- Barre du bas -->
@@ -91,6 +96,24 @@
       </label>
     </div>
 
+    <h3>Filtre bonne mine</h3>
+    <div class="grid">
+      <label class="check">
+        <input id="filterInput" type="checkbox">
+        <span>Activer le filtre (aussi avec le bouton ✨ de l'écran)</span>
+      </label>
+      <span></span>
+      <label class="field">
+        <span>Lissage de la peau <b id="smoothVal">50</b> %</span>
+        <input id="smoothInput" type="range" min="0" max="100" step="5" value="50">
+      </label>
+      <label class="field">
+        <span>Éclat &amp; teint chaleureux <b id="glowVal">40</b> %</span>
+        <input id="glowInput" type="range" min="0" max="100" step="5" value="40">
+      </label>
+    </div>
+    <p class="hint" id="filterInfo"></p>
+
     <p class="hint">
       Le texte s'affiche uniquement à l'écran. La vidéo enregistrée ne contient que l'image de la caméra et le son.<br>
       Astuce : pendant l'enregistrement, touchez le texte pour mettre le défilement en pause, glissez pour avancer ou reculer.
@@ -112,7 +135,6 @@
     <p class="hint">Sur iPhone : « Enregistrer / Partager » puis « Enregistrer la vidéo » pour l'ajouter à Photos.</p>
   </section>
 
-  <canvas id="recCanvas" hidden></canvas>
   <script src="app.js"></script>
 </body>
 </html>
