@@ -30,6 +30,6 @@ Pour le 16:9, tourner le téléphone à l'horizontale : sinon l'image est recadr
 - `index.html` : structure de la page
 - `style.css` : mise en forme
 - `app.js` : caméra, défilement, enregistrement
-- `manifest.webmanifest`, `icon-*.png` : installation sur l'écran d'accueil
+- `manifest.webmanifest`, `icon-*.png`, `favicon-32.png` : installation sur l'écran d'accueil
 
 Aucune dépendance et aucune étape de compilation : il suffit d'héberger les fichiers en HTTPS (par exemple avec GitHub Pages).
