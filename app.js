@@ -34,7 +34,8 @@
     heightInput: $('heightInput'), heightVal: $('heightVal'),
     opacityInput: $('opacityInput'), opacityVal: $('opacityVal'),
     countdownInput: $('countdownInput'),
-    mirrorInput: $('mirrorInput'),
+    recordMirrorInput: $('recordMirrorInput'),
+    previewMirrorInput: $('previewMirrorInput'),
     formatInfo: $('formatInfo'),
     result: $('result'),
     resultVideo: $('resultVideo'),
@@ -58,7 +59,8 @@
     height: 40,
     opacity: 55,
     countdown: true,
-    mirror: true,
+    recordMirror: false,   // vidéo enregistrée à l'endroit par défaut
+    previewMirror: false,  // aperçu identique à la vidéo par défaut
     ratio: 'portrait',
     facing: 'user',
     filter: false,
@@ -118,6 +120,7 @@
     uniform vec2 uStep;      // taille d'un pas d'échantillonnage (en coordonnées de texture)
     uniform float uSmooth;   // 0..1
     uniform float uGlow;     // 0..1
+    uniform float uFlipX;    // 1.0 = image retournée horizontalement (miroir)
 
     float skinMask(vec3 c) {
       float cb = -0.1687 * c.r - 0.3313 * c.g + 0.5 * c.b + 0.5;
@@ -128,7 +131,8 @@
     }
 
     void main() {
-      vec2 uv = uCrop.xy + vec2(vUv.x, 1.0 - vUv.y) * uCrop.zw;
+      float x = uFlipX > 0.5 ? 1.0 - vUv.x : vUv.x;
+      vec2 uv = uCrop.xy + vec2(x, 1.0 - vUv.y) * uCrop.zw;
       vec3 c = texture2D(uTex, uv).rgb;
       vec3 col = c;
 
@@ -202,7 +206,7 @@
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
 
-        for (const n of ['uTex', 'uCrop', 'uStep', 'uSmooth', 'uGlow']) loc[n] = gl.getUniformLocation(prog, n);
+        for (const n of ['uTex', 'uCrop', 'uStep', 'uSmooth', 'uGlow', 'uFlipX']) loc[n] = gl.getUniformLocation(prog, n);
         gl.uniform1i(loc.uTex, 0);
       } catch (e) {
         console.warn('WebGL indisponible, rendu sans filtre', e);
@@ -213,6 +217,7 @@
 
     function draw(video, crop) {
       const vw = video.videoWidth, vh = video.videoHeight;
+      const flip = settings.recordMirror && settings.facing === 'user';
       if (gl) {
         gl.viewport(0, 0, canvas.width, canvas.height);
         gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -224,9 +229,13 @@
         const on = settings.filter;
         gl.uniform1f(loc.uSmooth, on ? settings.smooth / 100 : 0);
         gl.uniform1f(loc.uGlow, on ? settings.glow / 100 : 0);
+        gl.uniform1f(loc.uFlipX, flip ? 1 : 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       } else {
+        ctx2d.save();
+        if (flip) { ctx2d.translate(canvas.width, 0); ctx2d.scale(-1, 1); }
         ctx2d.drawImage(video, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, canvas.width, canvas.height);
+        ctx2d.restore();
       }
     }
 
@@ -251,7 +260,9 @@
     document.querySelectorAll('[data-ratio]').forEach((b) =>
       b.classList.toggle('active', b.dataset.ratio === settings.ratio));
 
-    els.view.classList.toggle('mirror', settings.mirror && settings.facing === 'user');
+    // Le canvas contient déjà l'image telle qu'elle sera enregistrée (miroir ou non) : l'aperçu
+    // montre donc la vidéo finale. « Aperçu en miroir » retourne en plus l'écran seulement.
+    els.view.classList.toggle('mirror', settings.facing === 'user' && settings.previewMirror && !settings.recordMirror);
     els.smoothVal.textContent = settings.smooth;
     els.glowVal.textContent = settings.glow;
     els.filterBtn.setAttribute('aria-pressed', String(settings.filter));
@@ -265,7 +276,8 @@
     els.heightInput.value = settings.height;
     els.opacityInput.value = settings.opacity;
     els.countdownInput.checked = settings.countdown;
-    els.mirrorInput.checked = settings.mirror;
+    els.recordMirrorInput.checked = settings.recordMirror;
+    els.previewMirrorInput.checked = settings.previewMirror;
     els.filterInput.checked = settings.filter;
     els.smoothInput.value = settings.smooth;
     els.glowInput.value = settings.glow;
@@ -646,7 +658,8 @@
   bind(els.heightInput, 'height');
   bind(els.opacityInput, 'opacity');
   bind(els.countdownInput, 'countdown');
-  bind(els.mirrorInput, 'mirror');
+  bind(els.recordMirrorInput, 'recordMirror');
+  bind(els.previewMirrorInput, 'previewMirror');
   bind(els.filterInput, 'filter');
   bind(els.smoothInput, 'smooth');
   bind(els.glowInput, 'glow');
