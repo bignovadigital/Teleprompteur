@@ -9,7 +9,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '10';
+  const APP_VERSION = '11';
   const $ = (id) => document.getElementById(id);
   const els = {
     body: document.body,
@@ -66,7 +66,7 @@
     speed: 5,
     size: 32,
     height: 40,
-    textPos: 66,           // haut de la zone de texte, en % de la hauteur de l'image (2/3 par défaut)
+    textTop: 55,           // haut de la zone de texte, en % de la hauteur de l'image
     opacity: 55,
     countdown: true,
     micId: '',             // '' = micro par défaut du téléphone
@@ -260,10 +260,10 @@
     const r = document.documentElement.style;
     r.setProperty('--prompter-size', settings.size + 'px');
     r.setProperty('--prompter-height', settings.height + '%');
-    r.setProperty('--prompter-top', settings.textPos + '%');
+    r.setProperty('--prompter-top', settings.textTop + '%');
     // Tout en haut, on laisse la place à la barre de boutons ; plus bas, une petite marge suffit.
-    r.setProperty('--prompter-pad', settings.textPos < 8 ? 'calc(var(--safe-top) + 56px)' : '14px');
-    els.textPosVal.textContent = settings.textPos;
+    r.setProperty('--prompter-pad', settings.textTop < 8 ? 'calc(var(--safe-top) + 56px)' : '14px');
+    els.textPosVal.textContent = settings.textTop;
     r.setProperty('--prompter-bg', `rgba(0,0,0,${settings.opacity / 100})`);
 
     els.prompterText.textContent = settings.script.trim();
@@ -291,7 +291,7 @@
     els.speedInput.value = settings.speed;
     els.sizeInput.value = settings.size;
     els.heightInput.value = settings.height;
-    els.textPosInput.value = settings.textPos;
+    els.textPosInput.value = settings.textTop;
     els.opacityInput.value = settings.opacity;
     els.countdownInput.checked = settings.countdown;
     els.recordMirrorInput.checked = settings.recordMirror;
@@ -895,7 +895,7 @@
   bind(els.speedInput, 'speed');
   bind(els.sizeInput, 'size');
   bind(els.heightInput, 'height');
-  bind(els.textPosInput, 'textPos');
+  bind(els.textPosInput, 'textTop');
   bind(els.opacityInput, 'opacity');
   bind(els.countdownInput, 'countdown');
   bind(els.recordMirrorInput, 'recordMirror');

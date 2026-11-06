@@ -148,7 +148,8 @@ body.landscape #frame {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  bottom: calc(var(--safe-bottom) + 120px);
+  top: calc(var(--safe-top) + 14px); /* en haut, loin du texte */
+  z-index: 6;
   display: flex;
   align-items: center;
   gap: 8px;
