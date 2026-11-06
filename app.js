@@ -9,7 +9,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '8';
+  const APP_VERSION = '9';
   const $ = (id) => document.getElementById(id);
   const els = {
     body: document.body,

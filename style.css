@@ -40,21 +40,34 @@ button {
   align-items: center;
   justify-content: center;
 }
+/* En 9:16, cadre collé en haut de l'écran : le texte reste près de l'objectif
+   et les boutons se placent sous l'image. */
+body:not(.landscape) #studio { align-items: flex-start; }
 
 /* Cadre au format choisi, centré et le plus grand possible */
+/* Le cadre garde TOUJOURS les proportions de la vidéo (9:16 ou 16:9) et tient dans l'écran,
+   quitte à laisser des bandes noires : l'aperçu n'est jamais déformé. */
 #frame {
   position: relative;
   overflow: hidden;
   background: #111;
-  aspect-ratio: 9 / 16;
-  height: 100%;
-  max-width: 100%;
+  flex: none;
+  width: min(100vw, calc(100vh * 9 / 16));
+  height: min(100vh, calc(100vw * 16 / 9));
 }
 body.landscape #frame {
-  aspect-ratio: 16 / 9;
-  width: 100%;
-  height: auto;
-  max-height: 100%;
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: min(100vh, calc(100vw * 9 / 16));
+}
+@supports (height: 100dvh) {
+  #frame {
+    width: min(100vw, calc(100dvh * 9 / 16));
+    height: min(100dvh, calc(100vw * 16 / 9));
+  }
+  body.landscape #frame {
+    width: min(100vw, calc(100dvh * 16 / 9));
+    height: min(100dvh, calc(100vw * 9 / 16));
+  }
 }
 
 #preview {
@@ -69,6 +82,7 @@ body.landscape #frame {
   inset: 0;
   width: 100%;
   height: 100%;
+  object-fit: contain; /* sécurité : jamais d'étirement */
 }
 #view.mirror { transform: scaleX(-1); }
 .row { display: flex; gap: 10px; }
@@ -313,7 +327,7 @@ input[type=range] { width: 100%; accent-color: var(--fg); }
 #micMeter .bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.2); overflow: hidden; }
 #micLevel { display: block; height: 100%; width: 0; background: #22c55e; transition: width .08s linear; }
 #micLevel.hot { background: #ef4444; }
-body.landscape #micMeter { bottom: 12px; }
+body.landscape #micMeter { bottom: 72px; }
 
 select {
   width: 100%;
