@@ -312,6 +312,7 @@ input[type=range] { width: 100%; accent-color: var(--fg); }
 #micMeter.warn #micName { color: #fca5a5; font-weight: 600; }
 #micMeter .bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.2); overflow: hidden; }
 #micLevel { display: block; height: 100%; width: 0; background: #22c55e; transition: width .08s linear; }
+#micLevel.hot { background: #ef4444; }
 body.landscape #micMeter { bottom: 12px; }
 
 select {

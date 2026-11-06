@@ -37,6 +37,7 @@
     recordMirrorInput: $('recordMirrorInput'),
     micSelect: $('micSelect'),
     micRefresh: $('micRefresh'),
+    gainInput: $('gainInput'), gainVal: $('gainVal'),
     voiceProcInput: $('voiceProcInput'),
     micMeter: $('micMeter'),
     micName: $('micName'),
@@ -66,7 +67,8 @@
     opacity: 55,
     countdown: true,
     micId: '',             // '' = micro par défaut du téléphone
-    voiceProc: false,      // traitement voix iOS (écho/bruit) : désactivé, gêne les micros externes
+    voiceProc: false,
+    micGain: 4,            // amplification logicielle du micro (×1 à ×16)      // traitement voix iOS (écho/bruit) : désactivé, gêne les micros externes
     recordMirror: false,   // vidéo enregistrée à l'endroit par défaut
     previewMirror: false,  // aperçu identique à la vidéo par défaut
     ratio: 'portrait',
@@ -286,6 +288,8 @@
     els.countdownInput.checked = settings.countdown;
     els.recordMirrorInput.checked = settings.recordMirror;
     els.voiceProcInput.checked = settings.voiceProc;
+    els.gainInput.value = settings.micGain;
+    els.gainVal.textContent = '×' + settings.micGain;
     els.previewMirrorInput.checked = settings.previewMirror;
     els.filterInput.checked = settings.filter;
     els.smoothInput.value = settings.smooth;
@@ -383,7 +387,10 @@
     return stream ? stream.getAudioTracks()[0] || null : null;
   }
 
+  // Chaîne audio : micro → amplification → limiteur → (jauge + piste enregistrée).
+  // Le son n'est envoyé vers aucun haut-parleur.
   let audioCtx = null, analyser = null, meterSource = null, meterBuf = null;
+  let gainNode = null, limiter = null, audioDest = null;
 
   function setupMeter() {
     const track = currentAudioTrack();
@@ -394,17 +401,46 @@
       if (!AC) return;
       if (!audioCtx) audioCtx = new AC();
       if (!analyser) {
+        gainNode = audioCtx.createGain();
+        limiter = audioCtx.createDynamicsCompressor();
+        // Réglages de limiteur : écrase seulement les pics pour éviter la saturation.
+        limiter.threshold.value = -3;
+        limiter.knee.value = 3;
+        limiter.ratio.value = 20;
+        limiter.attack.value = 0.002;
+        limiter.release.value = 0.15;
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = 512;
         meterBuf = new Uint8Array(analyser.fftSize);
+        gainNode.connect(limiter);
+        limiter.connect(analyser);
+        if (audioCtx.createMediaStreamDestination) {
+          audioDest = audioCtx.createMediaStreamDestination();
+          limiter.connect(audioDest);
+        }
       }
-      // L'analyseur n'est relié à aucune sortie : rien n'est joué dans le haut-parleur.
+      applyGain();
       meterSource = audioCtx.createMediaStreamSource(new MediaStream([track]));
-      meterSource.connect(analyser);
-      if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+      meterSource.connect(gainNode);
+      if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
     } catch (e) {
-      console.warn('Jauge micro indisponible', e);
+      console.warn('Chaîne audio indisponible', e);
     }
+  }
+
+  function applyGain() {
+    if (gainNode) gainNode.gain.value = settings.micGain;
+  }
+
+  /** Piste audio à enregistrer : le son amplifié si possible, sinon le son brut du micro. */
+  function recordingAudioTracks() {
+    const raw = stream ? stream.getAudioTracks() : [];
+    if (audioDest && meterSource && audioCtx && audioCtx.state === 'running') {
+      const t = audioDest.stream.getAudioTracks();
+      if (t.length) return t;
+    }
+    console.warn('Amplification indisponible : enregistrement du son brut');
+    return raw;
   }
 
   // Safari n'autorise le son qu'après un geste de l'utilisateur.
@@ -426,9 +462,13 @@
       analyser.getByteTimeDomainData(meterBuf);
       let sum = 0;
       for (let i = 0; i < meterBuf.length; i++) { const v = (meterBuf[i] - 128) / 128; sum += v * v; }
-      level = Math.min(1, Math.sqrt(sum / meterBuf.length) * 4);
+      // Échelle en dB : -50 dB = vide, 0 dB = plein.
+      const rms = Math.sqrt(sum / meterBuf.length);
+      const db = 20 * Math.log10(rms + 1e-9);
+      level = Math.max(0, Math.min(1, (db + 50) / 50));
     }
     els.micLevel.style.width = `${Math.round(level * 100)}%`;
+    els.micLevel.classList.toggle('hot', level > 0.9);
     if (audioCtx && audioCtx.state !== 'running') els.micName.textContent += ' (touchez l\'écran)';
   }
 
@@ -542,6 +582,7 @@
   let startedAt = 0;
   let resultBlob = null;
   let resultUrl = null;
+  let resultSaved = false;
   let wakeLock = null;
   let countdownTimer = 0;
 
@@ -580,8 +621,33 @@
       }
       renderer.draw(v, cropRect(v.videoWidth, v.videoHeight, portrait ? 9 / 16 : 16 / 9));
     }
+    checkFrozen(v);
     updateMeter();
     requestAnimationFrame(renderLoop);
+  }
+
+  /**
+   * Surveillance anti-image figée : si l'aperçu caméra est en pause ou n'avance plus
+   * (par ex. après la lecture d'une vidéo sur iPhone), on le relance, puis on redémarre
+   * la caméra si nécessaire.
+   */
+  let lastVideoTime = -1, lastProgressAt = 0, lastRestartAt = 0;
+  function checkFrozen(v) {
+    if (!stream || document.hidden || !els.result.hidden) { lastProgressAt = performance.now(); return; }
+    const now = performance.now();
+    if (v.currentTime !== lastVideoTime) {
+      lastVideoTime = v.currentTime;
+      lastProgressAt = now;
+      return;
+    }
+    if (v.paused) v.play().catch(() => {});
+    const videoEnded = stream.getVideoTracks().some((t) => t.readyState === 'ended');
+    if ((videoEnded || now - lastProgressAt > 1500) && !recording && !countdownTimer && now - lastRestartAt > 4000) {
+      console.warn('Aperçu figé : redémarrage de la caméra');
+      lastRestartAt = now;
+      lastProgressAt = now;
+      startCamera();
+    }
   }
 
   async function requestWakeLock() {
@@ -611,7 +677,7 @@
     const canvasStream = canvas.captureStream(30);
     const outStream = new MediaStream([
       ...canvasStream.getVideoTracks(),
-      ...stream.getAudioTracks(),
+      ...recordingAudioTracks(),
     ]);
 
     const opts = { videoBitsPerSecond: 8_000_000, audioBitsPerSecond: 128_000 };
@@ -686,6 +752,7 @@
   }
 
   els.recBtn.addEventListener('click', () => {
+    if (audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
     if (recording) { stopRecording(); return; }
     if (countdownTimer) { cancelCountdown(); return; }
     resetScroll();
@@ -706,6 +773,7 @@
     if (resultUrl) URL.revokeObjectURL(resultUrl);
     resultUrl = URL.createObjectURL(resultBlob);
     els.resultVideo.src = resultUrl;
+    resultSaved = false;
     const mb = (resultBlob.size / 1024 / 1024).toFixed(1);
     els.resultInfo.textContent = `${size.w}×${size.h} · ${extFor(resultBlob.type).toUpperCase()} · ${mb} Mo`;
     els.result.hidden = false;
@@ -718,6 +786,7 @@
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file] });
+        resultSaved = true;
         return;
       } catch (e) {
         if (e && e.name === 'AbortError') return; // l'utilisateur a fermé la feuille de partage
@@ -730,10 +799,12 @@
     document.body.appendChild(a);
     a.click();
     a.remove();
+    resultSaved = true;
   });
 
   els.discardBtn.addEventListener('click', () => {
-    if (!confirm('Supprimer cette vidéo ? Pensez à l\'enregistrer avant si vous voulez la garder.')) return;
+    if (!resultSaved &&
+        !confirm('Cette vidéo n\'a pas été enregistrée. La supprimer et refaire une prise ?')) return;
     els.resultVideo.pause();
     els.resultVideo.removeAttribute('src');
     els.resultVideo.load();
@@ -742,6 +813,11 @@
     resultBlob = null;
     els.result.hidden = true;
     resetScroll();
+    // Nouvelle prise : on repart d'une caméra et d'un micro tout neufs (sur iPhone, la lecture
+    // de la vidéo précédente peut figer l'aperçu caméra).
+    lastRestartAt = performance.now();
+    startCamera();
+    if (audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
   });
 
   // ---------- Commandes ----------
@@ -793,6 +869,12 @@
     settings.voiceProc = els.voiceProcInput.checked;
     save();
     if (!recording) startCamera();
+  });
+  els.gainInput.addEventListener('input', () => {
+    settings.micGain = Number(els.gainInput.value);
+    els.gainVal.textContent = '×' + settings.micGain;
+    save();
+    applyGain();
   });
   els.micRefresh.addEventListener('click', () => { if (!recording) startCamera(); });
   bind(els.previewMirrorInput, 'previewMirror');
