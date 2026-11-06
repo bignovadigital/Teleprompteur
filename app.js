@@ -9,6 +9,7 @@
 (() => {
   'use strict';
 
+  const APP_VERSION = '8';
   const $ = (id) => document.getElementById(id);
   const els = {
     body: document.body,
@@ -428,24 +429,46 @@
     }
   }
 
+  /**
+   * À appeler pendant un geste de l'utilisateur (toucher) : iPhone n'autorise à démarrer
+   * le moteur audio qu'à ce moment-là. S'il est bloqué (« interrupted », « closed »…),
+   * on le recrée.
+   */
+  function ensureAudioRunning() {
+    if (!currentAudioTrack()) return;
+    if (audioCtx && audioCtx.state === 'running' && meterSource) return;
+    if (audioCtx && audioCtx.state !== 'suspended') {
+      try { audioCtx.close(); } catch (_) {}
+      audioCtx = null; analyser = null; gainNode = null; limiter = null; audioDest = null; meterSource = null;
+    }
+    setupMeter();
+    if (audioCtx) audioCtx.resume().catch(() => {});
+  }
+
   function applyGain() {
     if (gainNode) gainNode.gain.value = settings.micGain;
   }
 
   /** Piste audio à enregistrer : le son amplifié si possible, sinon le son brut du micro. */
+  let audioInfo = '';
   function recordingAudioTracks() {
     const raw = stream ? stream.getAudioTracks() : [];
+    const label = raw[0] ? (raw[0].label || 'micro') : 'aucun micro';
     if (audioDest && meterSource && audioCtx && audioCtx.state === 'running') {
       const t = audioDest.stream.getAudioTracks();
-      if (t.length) return t;
+      if (t.length) {
+        audioInfo = `Son amplifié ×${settings.micGain} · ${label}`;
+        return t;
+      }
     }
-    console.warn('Amplification indisponible : enregistrement du son brut');
+    audioInfo = `⚠️ Son NON amplifié (moteur audio : ${audioCtx ? audioCtx.state : 'absent'}) · ${label}`;
+    console.warn(audioInfo);
     return raw;
   }
 
   // Safari n'autorise le son qu'après un geste de l'utilisateur.
   document.addEventListener('pointerdown', () => {
-    if (audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
+    if (!audioCtx || audioCtx.state !== 'running') ensureAudioRunning();
   }, { passive: true });
 
   function updateMeter() {
@@ -631,17 +654,25 @@
    * (par ex. après la lecture d'une vidéo sur iPhone), on le relance, puis on redémarre
    * la caméra si nécessaire.
    */
-  let lastVideoTime = -1, lastProgressAt = 0, lastRestartAt = 0;
+  let lastVideoTime = -1, lastProgressAt = 0, lastRestartAt = 0, lastFrameAt = 0;
+  // Compte les vraies images reçues de la caméra (plus fiable que currentTime, qui peut
+  // continuer d'avancer alors que l'image est figée).
+  const hasRVFC = 'requestVideoFrameCallback' in HTMLVideoElement.prototype;
+  if (hasRVFC) {
+    const onFrame = () => { lastFrameAt = performance.now(); els.preview.requestVideoFrameCallback(onFrame); };
+    els.preview.requestVideoFrameCallback(onFrame);
+  }
   function checkFrozen(v) {
     if (!stream || document.hidden || !els.result.hidden) { lastProgressAt = performance.now(); return; }
     const now = performance.now();
-    if (v.currentTime !== lastVideoTime) {
+    const progressed = hasRVFC ? lastFrameAt > lastProgressAt : v.currentTime !== lastVideoTime;
+    if (progressed && !v.paused) {
       lastVideoTime = v.currentTime;
       lastProgressAt = now;
       return;
     }
     if (v.paused) v.play().catch(() => {});
-    const videoEnded = stream.getVideoTracks().some((t) => t.readyState === 'ended');
+    const videoEnded = stream.getVideoTracks().some((t) => t.readyState === 'ended' || t.muted);
     if ((videoEnded || now - lastProgressAt > 1500) && !recording && !countdownTimer && now - lastRestartAt > 4000) {
       console.warn('Aperçu figé : redémarrage de la caméra');
       lastRestartAt = now;
@@ -752,7 +783,7 @@
   }
 
   els.recBtn.addEventListener('click', () => {
-    if (audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
+    ensureAudioRunning();
     if (recording) { stopRecording(); return; }
     if (countdownTimer) { cancelCountdown(); return; }
     resetScroll();
@@ -775,7 +806,7 @@
     els.resultVideo.src = resultUrl;
     resultSaved = false;
     const mb = (resultBlob.size / 1024 / 1024).toFixed(1);
-    els.resultInfo.textContent = `${size.w}×${size.h} · ${extFor(resultBlob.type).toUpperCase()} · ${mb} Mo`;
+    els.resultInfo.textContent = `${size.w}×${size.h} · ${extFor(resultBlob.type).toUpperCase()} · ${mb} Mo · ${audioInfo} · v${APP_VERSION}`;
     els.result.hidden = false;
   }
 
@@ -896,6 +927,8 @@
   });
 
   // ---------- Démarrage ----------
+  els.appVersion = $('appVersion');
+  if (els.appVersion) els.appVersion.textContent = APP_VERSION;
   applySettings();
   fillForm();
   startCamera();
