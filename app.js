@@ -9,7 +9,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '11';
+  const APP_VERSION = '12';
   const $ = (id) => document.getElementById(id);
   const els = {
     body: document.body,
@@ -34,6 +34,8 @@
     sizeInput: $('sizeInput'), sizeVal: $('sizeVal'),
     heightInput: $('heightInput'), heightVal: $('heightVal'),
     textPosInput: $('textPosInput'), textPosVal: $('textPosVal'),
+    lookbackInput: $('lookbackInput'), lookbackVal: $('lookbackVal'),
+    readLine: $('readLine'),
     opacityInput: $('opacityInput'), opacityVal: $('opacityVal'),
     countdownInput: $('countdownInput'),
     recordMirrorInput: $('recordMirrorInput'),
@@ -66,6 +68,7 @@
     speed: 5,
     size: 32,
     height: 40,
+    lookback: 3,           // nombre de lignes déjà lues qui restent visibles au-dessus
     textTop: 55,           // haut de la zone de texte, en % de la hauteur de l'image
     opacity: 55,
     countdown: true,
@@ -260,10 +263,9 @@
     const r = document.documentElement.style;
     r.setProperty('--prompter-size', settings.size + 'px');
     r.setProperty('--prompter-height', settings.height + '%');
-    r.setProperty('--prompter-top', settings.textTop + '%');
-    // Tout en haut, on laisse la place à la barre de boutons ; plus bas, une petite marge suffit.
-    r.setProperty('--prompter-pad', settings.textTop < 8 ? 'calc(var(--safe-top) + 56px)' : '14px');
     els.textPosVal.textContent = settings.textTop;
+    els.lookbackVal.textContent = settings.lookback;
+    layoutPrompter();
     r.setProperty('--prompter-bg', `rgba(0,0,0,${settings.opacity / 100})`);
 
     els.prompterText.textContent = settings.script.trim();
@@ -286,12 +288,47 @@
     els.filterBtn.hidden = !renderer.gl;
   }
 
+  /**
+   * Place la zone de texte dans l'image :
+   * - le texte démarre (ligne de lecture rouge) à « Position du texte » % de la hauteur ;
+   * - la zone remonte de « lignes déjà lues » au-dessus, pour garder les phrases lues visibles ;
+   * - elle descend de « Hauteur de la zone » % sous le point de départ, sans dépasser l'image.
+   */
+  function layoutPrompter() {
+    const H = els.frame.clientHeight;
+    if (!H) return;
+    const lineH = settings.size * 1.35;
+    const startY = H * settings.textTop / 100;
+    const barSpace = 56; // place pour la barre de boutons du haut
+    let top, pad;
+    if (startY < barSpace + 8) {
+      // Texte tout en haut : comportement d'origine, sous la barre de boutons.
+      top = 0;
+      pad = Math.max(startY, barSpace);
+    } else {
+      const look = settings.lookback * lineH + 10;
+      top = Math.max(barSpace, startY - look);
+      if (top > startY - 10) top = Math.max(0, startY - 10);
+      pad = startY - top;
+    }
+    const bottom = Math.min(H, startY + H * settings.height / 100);
+    const p = els.prompter.style;
+    p.top = top + 'px';
+    p.height = Math.max(lineH + pad, bottom - top) + 'px';
+    p.paddingTop = pad + 'px';
+    p.setProperty('--fade', pad + 'px');
+    els.readLine.style.top = pad + 'px';
+  }
+  window.addEventListener('resize', () => requestAnimationFrame(layoutPrompter));
+  window.addEventListener('orientationchange', () => setTimeout(layoutPrompter, 300));
+
   function fillForm() {
     els.scriptInput.value = settings.script;
     els.speedInput.value = settings.speed;
     els.sizeInput.value = settings.size;
     els.heightInput.value = settings.height;
     els.textPosInput.value = settings.textTop;
+    els.lookbackInput.value = settings.lookback;
     els.opacityInput.value = settings.opacity;
     els.countdownInput.checked = settings.countdown;
     els.recordMirrorInput.checked = settings.recordMirror;
@@ -896,6 +933,7 @@
   bind(els.sizeInput, 'size');
   bind(els.heightInput, 'height');
   bind(els.textPosInput, 'textTop');
+  bind(els.lookbackInput, 'lookback');
   bind(els.opacityInput, 'opacity');
   bind(els.countdownInput, 'countdown');
   bind(els.recordMirrorInput, 'recordMirror');

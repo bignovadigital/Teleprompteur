@@ -6,7 +6,7 @@ Application web pour se filmer en lisant son texte.
 ## Fonctionnement
 
 - L'aperçu caméra est affiché en plein écran, au format choisi (9:16 vertical ou 16:9 horizontal).
-- Le texte défile par-dessus l'image, à partir de 55 % de sa hauteur par défaut (réglable dans « Texte & réglages › Position du texte »).
+- Le texte défile par-dessus l'image, à partir de 55 % de sa hauteur par défaut (réglable dans « Texte & réglages › Position du texte »). Les lignes déjà lues restent visibles quelques lignes au-dessus, en s'estompant (3 par défaut, réglable).
 - L'image de la caméra est dessinée (recadrée, et filtrée si le filtre est activé) dans un `<canvas>` qui sert à la fois d'aperçu et de source d'enregistrement, avec le son du micro. Le texte est un élément séparé : il n'est jamais dans la vidéo.
 - Filtre « bonne mine » (bouton ✨) : lissage de la peau qui garde les contours nets, plus éclat et teint légèrement plus chaud. Réglable dans « Texte & réglages ». Il s'applique à l'aperçu et à la vidéo, pas au texte.
 - Vidéo à l'endroit par défaut (comme les autres vous voient). Options dans « Texte & réglages » : enregistrer en miroir, ou seulement afficher l'aperçu en miroir.

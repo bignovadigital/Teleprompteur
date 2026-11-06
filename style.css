@@ -91,18 +91,21 @@ body.landscape #frame {
 
 /* Prompteur — en haut, au plus près de l'objectif */
 #prompter {
+  /* Position, hauteur et marge haute calculées en JavaScript (layoutPrompter) :
+     la zone commence quelques lignes AU-DESSUS du point de départ du texte, pour que
+     les lignes déjà lues restent visibles un moment en s'estompant. */
   position: absolute;
   left: 0;
   right: 0;
-  top: var(--prompter-top, 0%);
-  /* La zone ne dépasse jamais le bas de l'image. */
-  height: min(var(--prompter-height), calc(100% - var(--prompter-top, 0%)));
-  padding-top: var(--prompter-pad, calc(var(--safe-top) + 56px));
+  top: 0;
+  height: 40%;
+  padding-top: calc(var(--safe-top) + 56px);
   background: var(--prompter-bg);
   overflow: hidden;
   touch-action: none;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 calc(var(--prompter-pad, 56px) + 8px), #000 80%, transparent 100%);
-          mask-image: linear-gradient(to bottom, transparent 0, #000 calc(var(--prompter-pad, 56px) + 8px), #000 80%, transparent 100%);
+  --fade: 56px;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,.12) 0, rgba(0,0,0,.55) calc(var(--fade) * .45), #000 calc(var(--fade) * .8), #000 85%, transparent 100%);
+          mask-image: linear-gradient(to bottom, rgba(0,0,0,.12) 0, rgba(0,0,0,.55) calc(var(--fade) * .45), #000 calc(var(--fade) * .8), #000 85%, transparent 100%);
 }
 #prompterText {
   padding: 0 6%;
@@ -125,7 +128,7 @@ body.landscape #frame {
   left: 0;
   width: 6px;
   height: calc(var(--prompter-size) * 1.35);
-  top: var(--prompter-pad, calc(var(--safe-top) + 56px));
+  top: calc(var(--safe-top) + 56px);
   background: var(--accent);
   border-radius: 0 3px 3px 0;
   opacity: .8;
