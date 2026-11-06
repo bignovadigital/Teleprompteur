@@ -179,6 +179,8 @@ body.landscape #frame {
   text-align: center;
   color: var(--muted);
   line-height: 1.5;
+  z-index: 4;
+  background: #111;
 }
 
 /* Barres de commande */

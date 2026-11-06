@@ -9,7 +9,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '12';
+  const APP_VERSION = '13';
   const $ = (id) => document.getElementById(id);
   const els = {
     body: document.body,
@@ -351,11 +351,21 @@
   // ---------- Caméra ----------
   let stream = null;
 
+  // Un seul démarrage de caméra à la fois : les demandes arrivées pendant ce temps
+  // sont regroupées en un seul nouvel essai.
+  let cameraBusy = false, cameraAgain = false, streamStartedAt = 0;
   async function startCamera() {
+    if (cameraBusy) { cameraAgain = true; return; }
+    cameraBusy = true;
+    try { await openCamera(); } finally { cameraBusy = false; }
+    if (cameraAgain) { cameraAgain = false; startCamera(); }
+  }
+
+  async function openCamera() {
     stopCamera();
     els.camMessage.hidden = true;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      showCamMessage("L'accès à la caméra n'est pas disponible. Ouvrez cette page en HTTPS dans Safari.");
+      showCamMessage("L'accès à la caméra n'est pas disponible. Ouvrez cette page en HTTPS dans Safari.", false);
       return;
     }
     const video = {
@@ -372,28 +382,63 @@
       if (micId) a.deviceId = { exact: micId };
       return a;
     };
-    try {
+    // Essais successifs, du plus précis au plus simple. Si le micro pose problème,
+    // la caméra doit quand même fonctionner (dernier essai : image seule).
+    const attempts = [];
+    if (settings.micId) attempts.push({ video, audio: audioFor(settings.micId) });
+    attempts.push({ video, audio: audioFor('') });
+    attempts.push({ video: { facingMode: settings.facing }, audio: true });
+    attempts.push({ video: true, audio: true });
+    attempts.push({ video: { facingMode: settings.facing }, audio: false });
+    attempts.push({ video: true, audio: false });
+
+    let lastErr = null, s = null, used = -1;
+    for (let i = 0; i < attempts.length; i++) {
       try {
-        stream = await navigator.mediaDevices.getUserMedia({ video, audio: audioFor(settings.micId) });
+        s = await navigator.mediaDevices.getUserMedia(attempts[i]);
+        used = i;
+        break;
       } catch (err) {
-        // Micro choisi introuvable (débranché…) : on reprend le micro par défaut.
-        if (!settings.micId) throw err;
-        console.warn('Micro choisi indisponible, micro par défaut', err);
-        settings.micId = '';
-        save();
-        stream = await navigator.mediaDevices.getUserMedia({ video, audio: audioFor('') });
+        lastErr = err;
+        console.warn('getUserMedia refusé', i, err && err.name, err && err.message);
+        // Autorisation refusée : on tente encore l'image seule (le refus peut ne concerner que le micro).
+        if (err && err.name === 'NotAllowedError') {
+          const next = attempts.findIndex((a, j) => j > i && a.audio === false);
+          if (next < 0) break;
+          i = next - 1;
+        }
       }
-      els.preview.srcObject = stream;
-      await els.preview.play().catch(() => {});
-      watchAudioTrack();
-      listMics();
-    } catch (err) {
-      console.error(err);
-      showCamMessage(
-        "Impossible d'accéder à la caméra ou au micro.<br>" +
-        "Vérifiez les autorisations : Réglages › Safari › Caméra / Microphone → « Autoriser ».<br><br>" +
-        `<small>(${err.name || 'Erreur'})</small>`);
     }
+    if (!s) {
+      showCameraError(lastErr);
+      return;
+    }
+    if (settings.micId && used !== 0) { settings.micId = ''; save(); } // micro choisi introuvable
+    stream = s;
+    streamStartedAt = performance.now();
+    els.preview.srcObject = stream;
+    await els.preview.play().catch(() => {});
+    watchAudioTrack();
+    listMics();
+    deviceSignature().then((sig) => { if (sig !== null) lastDeviceSig = sig; });
+  }
+
+  function showCameraError(err) {
+    const name = (err && err.name) || 'Erreur';
+    let help;
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      help = "L'accès à la caméra ou au micro a été refusé.<br>" +
+        "Sur iPhone : Réglages › Safari › Caméra et Microphone → « Autoriser » (ou « Demander »), " +
+        "puis fermez complètement l'application et rouvrez-la.";
+    } else if (name === 'NotReadableError' || name === 'AbortError' || name === 'TrackStartError') {
+      help = "La caméra est peut-être utilisée par une autre application (Appareil photo, FaceTime, DJI Mimo, appel en cours…).<br>" +
+        "Fermez ces applications puis touchez « Réessayer ».";
+    } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+      help = "Aucune caméra n'a été trouvée.";
+    } else {
+      help = "Impossible de démarrer la caméra.";
+    }
+    showCamMessage(`${help}<br><br><small>(${name}${err && err.message ? ' : ' + err.message : ''})</small>`, true);
   }
 
   function stopCamera() {
@@ -546,20 +591,35 @@
   }
 
   // Branchement / débranchement d'un micro : on relance la capture (hors enregistrement).
-  let deviceChangeTimer = 0;
+  let deviceChangeTimer = 0, lastDeviceSig = null;
+  async function deviceSignature() {
+    try {
+      const d = await navigator.mediaDevices.enumerateDevices();
+      return d.filter((x) => x.kind === 'audioinput' || x.kind === 'videoinput')
+        .map((x) => x.kind + ':' + x.deviceId).sort().join('|');
+    } catch (_) { return null; }
+  }
   if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
     navigator.mediaDevices.addEventListener('devicechange', () => {
       clearTimeout(deviceChangeTimer);
-      deviceChangeTimer = setTimeout(() => {
-        if (recording || countdownTimer) { listMics(); return; }
+      deviceChangeTimer = setTimeout(async () => {
+        const sig = await deviceSignature();
+        // iPhone signale aussi des « changements » quand la caméra démarre : on ne relance
+        // que si un micro ou une caméra a réellement été ajouté ou retiré.
+        const changed = sig !== null && lastDeviceSig !== null && sig !== lastDeviceSig;
+        lastDeviceSig = sig;
+        listMics();
+        if (!changed || recording || countdownTimer || cameraBusy) return;
         startCamera();
       }, 800);
     });
   }
 
-  function showCamMessage(html) {
-    els.camMessage.innerHTML = html;
+  function showCamMessage(html, retry) {
+    els.camMessage.innerHTML = `<div>${html}${retry ? '<br><br><button id="camRetry" class="pill primary" type="button">Réessayer</button>' : ''}</div>`;
     els.camMessage.hidden = false;
+    const b = document.getElementById('camRetry');
+    if (b) b.addEventListener('click', () => { ensureAudioRunning(); startCamera(); });
   }
 
   // ---------- Défilement du texte ----------
@@ -706,8 +766,9 @@
     const onFrame = () => { lastFrameAt = performance.now(); els.preview.requestVideoFrameCallback(onFrame); };
     els.preview.requestVideoFrameCallback(onFrame);
   }
+  let autoRestarts = [];
   function checkFrozen(v) {
-    if (!stream || document.hidden || !els.result.hidden) { lastProgressAt = performance.now(); return; }
+    if (!stream || cameraBusy || document.hidden || !els.result.hidden) { lastProgressAt = performance.now(); return; }
     const now = performance.now();
     const progressed = hasRVFC ? lastFrameAt > lastProgressAt : v.currentTime !== lastVideoTime;
     if (progressed && !v.paused) {
@@ -716,13 +777,20 @@
       return;
     }
     if (v.paused) v.play().catch(() => {});
-    const videoEnded = stream.getVideoTracks().some((t) => t.readyState === 'ended' || t.muted);
-    if ((videoEnded || now - lastProgressAt > 1500) && !recording && !countdownTimer && now - lastRestartAt > 4000) {
-      console.warn('Aperçu figé : redémarrage de la caméra');
-      lastRestartAt = now;
-      lastProgressAt = now;
-      startCamera();
-    }
+    if (recording || countdownTimer) return;
+    const videoEnded = stream.getVideoTracks().some((t) => t.readyState === 'ended');
+    // Figé = des images arrivaient pour ce flux, puis plus rien depuis 2 s.
+    const hadFrames = hasRVFC ? lastFrameAt > streamStartedAt : v.currentTime > 0;
+    const frozen = hadFrames && now - lastProgressAt > 2000;
+    if (!videoEnded && !frozen) return;
+    // Au plus 3 redémarrages automatiques par minute (jamais de boucle).
+    autoRestarts = autoRestarts.filter((t) => now - t < 60000);
+    if (autoRestarts.length >= 3 || now - lastRestartAt < 4000) return;
+    console.warn('Aperçu figé ou caméra arrêtée : redémarrage');
+    autoRestarts.push(now);
+    lastRestartAt = now;
+    lastProgressAt = now;
+    startCamera();
   }
 
   async function requestWakeLock() {
