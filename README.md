@@ -10,6 +10,7 @@ Application web pour se filmer en lisant son texte.
 - L'image de la caméra est dessinée (recadrée, et filtrée si le filtre est activé) dans un `<canvas>` qui sert à la fois d'aperçu et de source d'enregistrement, avec le son du micro. Le texte est un élément séparé : il n'est jamais dans la vidéo.
 - Filtre « bonne mine » (bouton ✨) : lissage de la peau qui garde les contours nets, plus éclat et teint légèrement plus chaud. Réglable dans « Texte & réglages ». Il s'applique à l'aperçu et à la vidéo, pas au texte.
 - Vidéo à l'endroit par défaut (comme les autres vous voient). Options dans « Texte & réglages » : enregistrer en miroir, ou seulement afficher l'aperçu en miroir.
+- Micro : choix du micro (iPhone ou externe, ex. DJI), jauge de niveau sur l'écran de tournage, traitement du son de l'iPhone désactivé par défaut (meilleure compatibilité avec les micros externes).
 - Export en MP4 quand le navigateur le permet (c'est le cas de Safari sur iPhone).
 
 ## Utilisation sur iPhone

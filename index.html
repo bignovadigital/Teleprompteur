@@ -32,6 +32,10 @@
       <div id="countdown" hidden></div>
       <div id="recBadge" hidden><span class="dot"></span><span id="recTime">00:00</span></div>
       <div id="camMessage" hidden></div>
+      <div id="micMeter" title="Niveau du micro">
+        <span id="micName">Micro</span>
+        <div class="bar"><i id="micLevel"></i></div>
+      </div>
       <div id="rotateHint">↻ Tournez le téléphone à l'horizontale</div>
     </div>
 
@@ -100,6 +104,18 @@
         <span>Afficher l'aperçu en miroir (caméra avant) — n'agit que sur l'écran : la vidéo reste à l'endroit</span>
       </label>
     </div>
+
+    <h3>Micro</h3>
+    <label class="field">
+      <span>Micro utilisé</span>
+      <select id="micSelect"></select>
+    </label>
+    <button id="micRefresh" class="pill secondary" type="button">↻ Rechercher les micros</button>
+    <label class="check" style="margin-top:14px">
+      <input id="voiceProcInput" type="checkbox">
+      <span>Traitement du son de l'iPhone (réduction d'écho et de bruit). À laisser désactivé avec un micro externe (DJI, etc.).</span>
+    </label>
+    <p class="hint">Branchez ou connectez le micro <b>avant</b> d'ouvrir l'application. Vérifiez la jauge verte en bas à gauche de l'écran de tournage : elle doit bouger quand vous parlez.</p>
 
     <h3>Filtre bonne mine</h3>
     <div class="grid">

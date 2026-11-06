@@ -297,6 +297,35 @@ input[type=range] { width: 100%; accent-color: var(--fg); }
   background: #000;
   border-radius: 12px;
 }
+#micMeter {
+  position: absolute;
+  left: 12px;
+  bottom: calc(var(--safe-bottom) + 104px);
+  width: 150px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(0,0,0,.55);
+  font-size: 11px;
+  pointer-events: none;
+}
+#micName { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+#micMeter.warn #micName { color: #fca5a5; font-weight: 600; }
+#micMeter .bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.2); overflow: hidden; }
+#micLevel { display: block; height: 100%; width: 0; background: #22c55e; transition: width .08s linear; }
+body.landscape #micMeter { bottom: 12px; }
+
+select {
+  width: 100%;
+  font: inherit;
+  font-size: 16px;
+  color: var(--fg);
+  background: #000;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+}
+.pill.secondary { background: #27272a; }
+
 .actions { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
 .actions .pill { padding: 14px; font-size: 16px; }
 .actions .pill:not(.primary) { background: #27272a; }

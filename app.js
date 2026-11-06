@@ -35,6 +35,12 @@
     opacityInput: $('opacityInput'), opacityVal: $('opacityVal'),
     countdownInput: $('countdownInput'),
     recordMirrorInput: $('recordMirrorInput'),
+    micSelect: $('micSelect'),
+    micRefresh: $('micRefresh'),
+    voiceProcInput: $('voiceProcInput'),
+    micMeter: $('micMeter'),
+    micName: $('micName'),
+    micLevel: $('micLevel'),
     previewMirrorInput: $('previewMirrorInput'),
     formatInfo: $('formatInfo'),
     result: $('result'),
@@ -59,6 +65,8 @@
     height: 40,
     opacity: 55,
     countdown: true,
+    micId: '',             // '' = micro par défaut du téléphone
+    voiceProc: false,      // traitement voix iOS (écho/bruit) : désactivé, gêne les micros externes
     recordMirror: false,   // vidéo enregistrée à l'endroit par défaut
     previewMirror: false,  // aperçu identique à la vidéo par défaut
     ratio: 'portrait',
@@ -277,6 +285,7 @@
     els.opacityInput.value = settings.opacity;
     els.countdownInput.checked = settings.countdown;
     els.recordMirrorInput.checked = settings.recordMirror;
+    els.voiceProcInput.checked = settings.voiceProc;
     els.previewMirrorInput.checked = settings.previewMirror;
     els.filterInput.checked = settings.filter;
     els.smoothInput.value = settings.smooth;
@@ -300,21 +309,35 @@
       showCamMessage("L'accès à la caméra n'est pas disponible. Ouvrez cette page en HTTPS dans Safari.");
       return;
     }
+    const video = {
+      facingMode: settings.facing,
+      width: { ideal: 1920 },
+      height: { ideal: 1080 },
+      frameRate: { ideal: 30 },
+    };
+    const audioFor = (micId) => {
+      // Traitement voix désactivé par défaut : sur iPhone il active un mode « appel »
+      // qui pose problème avec certains micros externes.
+      const vp = settings.voiceProc;
+      const a = { echoCancellation: vp, noiseSuppression: vp, autoGainControl: vp };
+      if (micId) a.deviceId = { exact: micId };
+      return a;
+    };
     try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: settings.facing,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 },
-        },
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
-      });
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video, audio: audioFor(settings.micId) });
+      } catch (err) {
+        // Micro choisi introuvable (débranché…) : on reprend le micro par défaut.
+        if (!settings.micId) throw err;
+        console.warn('Micro choisi indisponible, micro par défaut', err);
+        settings.micId = '';
+        save();
+        stream = await navigator.mediaDevices.getUserMedia({ video, audio: audioFor('') });
+      }
       els.preview.srcObject = stream;
       await els.preview.play().catch(() => {});
+      watchAudioTrack();
+      listMics();
     } catch (err) {
       console.error(err);
       showCamMessage(
@@ -327,6 +350,104 @@
   function stopCamera() {
     if (stream) stream.getTracks().forEach((t) => t.stop());
     stream = null;
+  }
+
+  // ---------- Micro : liste, jauge de niveau, surveillance ----------
+  async function listMics() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+    let devices = [];
+    try { devices = await navigator.mediaDevices.enumerateDevices(); } catch (_) { return; }
+    const mics = devices.filter((d) => d.kind === 'audioinput');
+    const current = currentAudioTrack();
+    const currentId = current && current.getSettings ? current.getSettings().deviceId : '';
+    els.micSelect.innerHTML = '';
+    const def = document.createElement('option');
+    def.value = '';
+    def.textContent = 'Automatique (micro par défaut du téléphone)';
+    els.micSelect.appendChild(def);
+    mics.forEach((m, i) => {
+      const o = document.createElement('option');
+      o.value = m.deviceId;
+      o.textContent = m.label || `Micro ${i + 1}`;
+      els.micSelect.appendChild(o);
+    });
+    els.micSelect.value = settings.micId && mics.some((m) => m.deviceId === settings.micId) ? settings.micId : '';
+    if (!settings.micId && currentId) {
+      // Indique quel micro est réellement utilisé en mode automatique.
+      const used = mics.find((m) => m.deviceId === currentId);
+      if (used && used.label) def.textContent = `Automatique (actuellement : ${used.label})`;
+    }
+  }
+
+  function currentAudioTrack() {
+    return stream ? stream.getAudioTracks()[0] || null : null;
+  }
+
+  let audioCtx = null, analyser = null, meterSource = null, meterBuf = null;
+
+  function setupMeter() {
+    const track = currentAudioTrack();
+    if (meterSource) { try { meterSource.disconnect(); } catch (_) {} meterSource = null; }
+    if (!track) return;
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!audioCtx) audioCtx = new AC();
+      if (!analyser) {
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        meterBuf = new Uint8Array(analyser.fftSize);
+      }
+      // L'analyseur n'est relié à aucune sortie : rien n'est joué dans le haut-parleur.
+      meterSource = audioCtx.createMediaStreamSource(new MediaStream([track]));
+      meterSource.connect(analyser);
+      if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+    } catch (e) {
+      console.warn('Jauge micro indisponible', e);
+    }
+  }
+
+  // Safari n'autorise le son qu'après un geste de l'utilisateur.
+  document.addEventListener('pointerdown', () => {
+    if (audioCtx && audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
+  }, { passive: true });
+
+  function updateMeter() {
+    const track = currentAudioTrack();
+    let warn = '';
+    if (!stream) warn = '';
+    else if (!track) warn = 'Aucun micro';
+    else if (track.readyState === 'ended') warn = 'Micro déconnecté';
+    else if (track.muted) warn = 'Micro coupé par le système';
+    els.micMeter.classList.toggle('warn', !!warn);
+    els.micName.textContent = warn || (track ? `🎙 ${track.label || 'Micro'}` : 'Micro');
+    let level = 0;
+    if (analyser && meterSource && !warn && audioCtx.state === 'running') {
+      analyser.getByteTimeDomainData(meterBuf);
+      let sum = 0;
+      for (let i = 0; i < meterBuf.length; i++) { const v = (meterBuf[i] - 128) / 128; sum += v * v; }
+      level = Math.min(1, Math.sqrt(sum / meterBuf.length) * 4);
+    }
+    els.micLevel.style.width = `${Math.round(level * 100)}%`;
+    if (audioCtx && audioCtx.state !== 'running') els.micName.textContent += ' (touchez l\'écran)';
+  }
+
+  function watchAudioTrack() {
+    setupMeter();
+    const track = currentAudioTrack();
+    if (track) track.addEventListener('ended', () => listMics());
+  }
+
+  // Branchement / débranchement d'un micro : on relance la capture (hors enregistrement).
+  let deviceChangeTimer = 0;
+  if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) {
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+      clearTimeout(deviceChangeTimer);
+      deviceChangeTimer = setTimeout(() => {
+        if (recording || countdownTimer) { listMics(); return; }
+        startCamera();
+      }, 800);
+    });
   }
 
   function showCamMessage(html) {
@@ -459,6 +580,7 @@
       }
       renderer.draw(v, cropRect(v.videoWidth, v.videoHeight, portrait ? 9 / 16 : 16 / 9));
     }
+    updateMeter();
     requestAnimationFrame(renderLoop);
   }
 
@@ -478,6 +600,9 @@
     }
     const v = els.preview;
     if (!v.videoWidth || !v.videoHeight) return;
+    const at = currentAudioTrack();
+    if ((!at || at.readyState === 'ended') &&
+        !confirm('Aucun micro actif : la vidéo n\'aura pas de son. Enregistrer quand même ?')) return;
 
     // Le canvas ne contient que l'image caméra (filtrée si activé), jamais le texte.
     const canvas = renderer.canvas;
@@ -641,7 +766,7 @@
   els.slowerBtn.addEventListener('click', () => setSpeed(settings.speed - 1));
   els.fasterBtn.addEventListener('click', () => setSpeed(settings.speed + 1));
 
-  els.scriptBtn.addEventListener('click', () => { fillForm(); els.sheet.hidden = false; });
+  els.scriptBtn.addEventListener('click', () => { fillForm(); listMics(); els.sheet.hidden = false; });
   els.closeSheet.addEventListener('click', () => {
     els.sheet.hidden = true;
     resetScroll();
@@ -659,6 +784,17 @@
   bind(els.opacityInput, 'opacity');
   bind(els.countdownInput, 'countdown');
   bind(els.recordMirrorInput, 'recordMirror');
+  els.micSelect.addEventListener('change', () => {
+    settings.micId = els.micSelect.value;
+    save();
+    if (!recording) startCamera();
+  });
+  els.voiceProcInput.addEventListener('input', () => {
+    settings.voiceProc = els.voiceProcInput.checked;
+    save();
+    if (!recording) startCamera();
+  });
+  els.micRefresh.addEventListener('click', () => { if (!recording) startCamera(); });
   bind(els.previewMirrorInput, 'previewMirror');
   bind(els.filterInput, 'filter');
   bind(els.smoothInput, 'smooth');
