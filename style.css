@@ -94,14 +94,15 @@ body.landscape #frame {
   position: absolute;
   left: 0;
   right: 0;
-  top: 0;
-  height: var(--prompter-height);
-  padding-top: calc(var(--safe-top) + 56px);
+  top: var(--prompter-top, 0%);
+  /* La zone ne dépasse jamais le bas de l'image. */
+  height: min(var(--prompter-height), calc(100% - var(--prompter-top, 0%)));
+  padding-top: var(--prompter-pad, calc(var(--safe-top) + 56px));
   background: var(--prompter-bg);
   overflow: hidden;
   touch-action: none;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 calc(var(--safe-top) + 64px), #000 80%, transparent 100%);
-          mask-image: linear-gradient(to bottom, transparent 0, #000 calc(var(--safe-top) + 64px), #000 80%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 calc(var(--prompter-pad, 56px) + 8px), #000 80%, transparent 100%);
+          mask-image: linear-gradient(to bottom, transparent 0, #000 calc(var(--prompter-pad, 56px) + 8px), #000 80%, transparent 100%);
 }
 #prompterText {
   padding: 0 6%;
@@ -124,7 +125,7 @@ body.landscape #frame {
   left: 0;
   width: 6px;
   height: calc(var(--prompter-size) * 1.35);
-  top: calc(var(--safe-top) + 56px);
+  top: var(--prompter-pad, calc(var(--safe-top) + 56px));
   background: var(--accent);
   border-radius: 0 3px 3px 0;
   opacity: .8;
@@ -314,7 +315,7 @@ input[type=range] { width: 100%; accent-color: var(--fg); }
 #micMeter {
   position: absolute;
   left: 12px;
-  bottom: calc(var(--safe-bottom) + 104px);
+  top: calc(var(--safe-top) + 64px);
   width: 150px;
   padding: 6px 8px;
   border-radius: 10px;
@@ -327,7 +328,26 @@ input[type=range] { width: 100%; accent-color: var(--fg); }
 #micMeter .bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,.2); overflow: hidden; }
 #micLevel { display: block; height: 100%; width: 0; background: #22c55e; transition: width .08s linear; }
 #micLevel.hot { background: #ef4444; }
-body.landscape #micMeter { bottom: 72px; }
+body.landscape #micMeter { top: 60px; }
+
+/* Téléphone à l'horizontale : boutons en colonne sur le côté droit, hors de l'image et du texte. */
+@media (orientation: landscape) {
+  #bottomBar {
+    left: auto;
+    top: 0;
+    bottom: 0;
+    right: calc(env(safe-area-inset-right, 0px) + 6px);
+    flex-direction: column;
+    justify-content: center;
+    gap: 18px;
+    padding: 10px 0;
+  }
+  #bottomBar .speed { flex-direction: column-reverse; }
+  #scriptBtn { max-width: 74px; font-size: 12px; padding: 8px; white-space: normal; line-height: 1.2; }
+  #recBtn { width: 64px; height: 64px; }
+  #recBtn span { width: 48px; height: 48px; }
+  #topBar { right: 80px; }
+}
 
 select {
   width: 100%;
@@ -348,7 +368,7 @@ select {
 #rotateHint {
   position: absolute;
   left: 50%;
-  bottom: 12px;
+  top: 12px;
   transform: translateX(-50%);
   white-space: nowrap;
   max-width: 92%;
